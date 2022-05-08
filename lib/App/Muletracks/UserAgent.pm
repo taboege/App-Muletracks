@@ -22,33 +22,36 @@ use App::Muletracks::Stashed;
 # ABSTRACT: Navigate nugs downloads
 class App::Muletracks::UserAgent {
     has $ua = Mojo::UserAgent->new(max_redirects => 5);
+    has $logged_out = 0;
 
     method login ($username, $password, $url = q[https://www.nugs.net/login/]) {
-        my $page = $ua->get($url)->result->dom;
-        my $form = $page->at('#dwfrm_login');
+        my $tx = $ua->get($url);
+        my $page = $tx->res->dom;
+        my $form = $page->at('form');
 
-        my $target = $form->attr('action');
-        my %data = $form->find('input, button')->map(sub {
+        my $target = $form->attr('action') // $tx->req->url;
+        my %data = $form->find('input')->map(sub {
             my ($name, $value) = $_->attr->@{'name', 'value'};
-            $value = $name =~ /username/ ? $username :
-                     $name =~ /password/ ? $password :
+            $value = $name =~ /email/i    ? $username :
+                     $name =~ /password/i ? $password :
                      $value;
             ($name, $value)
         })->each;
 
         my $res = $ua->post($target => form => \%data)->result;
         die 'nugs login failed'
-            if defined $res->dom->at('#dwfrm_login *.error-form');
+            if defined $res->dom->at('.validation-summary-errors');
+        $logged_out = 0;
         $self
     }
 
     method logout {
-        $ua->get(q[https://www.nugs.net/on/demandware.store/Sites-NugsNet-Site/default/Login-Logout])
-            ->result->body;
+        $logged_out = $ua->get(q[https://www.nugs.net/on/demandware.store/Sites-NugsNet-Site/default/Login-Logout])
+            ->result->is_success;
     }
 
-    sub DESTROY {
-        shift->logout;
+    method DESTROY {
+        $self->logout unless $logged_out;
     }
 
     method stash ($only = 'avail') {
@@ -57,10 +60,11 @@ class App::Muletracks::UserAgent {
             'Referer' => q[https://www.nugs.net/stash/],
             'X-Requested-With' => q[XMLHttpRequest],
         );
-        my $page = $ua->post($url, \%fake_headers)->result->dom;
+        my %form = (selectedSorting => 'purchaseDateDesc'); # newest first
+        my $page = $ua->post($url, \%fake_headers, form => \%form)->result->dom;
         my @stash;
-        for my $show ($page->find('.showData')->each) {
-            my $st = App::Muletracks::Stashed->new($show, $ua);
+        for my $album ($page->find('.album')->each) {
+            my $st = App::Muletracks::Stashed->new($album, $ua);
             push @stash, $st if $only eq 'all' or
                 ($only eq 'avail' and $st->available);
         }

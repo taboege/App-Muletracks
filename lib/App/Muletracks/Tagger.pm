@@ -38,8 +38,8 @@ class App::Muletracks::Tagger {
             album  => $tags{album},
             track  => $tags{tracknumber},
             title  => $tags{title},
-            cd     => $tags{discnumber},
             year   => $tags{date},
+            cd     => $tags{discnumber} // 1,
         }
     }
 

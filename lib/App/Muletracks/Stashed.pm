@@ -28,22 +28,23 @@ class App::Muletracks::Stashed {
 
     has $ua;
 
-    BUILD ($show, $client) {
+    BUILD ($album, $client) {
         $ua = $client;
 
-        $artist = $show->at('h5')->text;
-        $title  = $show->at('.showtitle-st')->text;
-        $format = $show->at('.format > span')->text;
+        $artist = $album->at('.grid-artist-name')->text;
+        $title  = $album->at('.showtitle-st')->text;
+        $format = $album->at('.format > span')->text;
 
-        my $link   = $show->following->first->at('a');
-        $available = $link->attr('data-stash-downloadable') // 'false';
+        $available = $album->attr('data-downloadable') // 'false';
         $available = $available eq 'true';
 
-        $media_id  = $link->attr('data-stash-album');
-        $user_id   = $link->attr('data-stash-album-user-id');
+        if (defined(my $link = $album->at('#arrowExpand'))) {
+            $media_id = $link->attr('data-stash-album');
+            $user_id  = $link->attr('data-stash-album-user-id');
+        }
     }
 
-    method download {
+    method downloads {
         use Mojo::JSON qw(decode_json);
 
         return () unless $available and
@@ -67,7 +68,7 @@ class App::Muletracks::Stashed {
         for my $track ($json->{items}->@*) {
             my ($url, $filename) = $track->@{'url', 'filename'};
             # XXX: We're trusting the server's filename
-            push @downloads, App::Muletracks::Download($url => $filename, $ua);
+            push @downloads, App::Muletracks::Download->new($url => $filename, $ua);
         }
         @downloads
     }
