@@ -13,54 +13,70 @@ Let me make it clear that this program merely automates clicks on
 "Download" buttons that a human would otherwise perform in a browser.
 You can only download from nugs.net what you purchased before.
 
-## The trouble of using it
+## How to use it
 
-I lack the time to write a neat front-end executable for this module.
-So below are the things I do when I need to download something.
+To install this module, you should clone the git repository and run
 
-First, the configuration file in `$HOME/.config/muletracks/config.yml`:
+``` console
+$ dzil build && cpanm App-Muletracks*.tar.gz
+```
+
+For that, you need the Perl authoring tool `Dist::Zilla` and its
+dependencies as well as the `cpanm` package manager. Sorry for the
+trouble.
+
+Next, write the configuration file in `$HOME/.config/muletracks/config.yml`:
 
 ``` yaml
 ---
 username: "???"
 password: "???"
-format: "%(artist)s - %(album)s [MuleTracks]/(CD%(cd)1d) %(track)02d. %(title)s"
+format: "%(artist)s - %(album)s/(CD%(cd)1d) %(track)02d. %(title)s"
 destination: "$HOME/muletracks"
 ...
 ```
 
-Notice the `format` key which instructs the `Tagger` about how to rename the
+`username` and `password` are your cleartext credentials for nugs.net.
+
+The `format` key which instructs the `Tagger` about how to rename the
 downloaded files from their embedded tags. I usually buy FLAC files and the
 tags I get from muletracks/nugs.net are always absolutely flawless.
 
-To download all your downloadable purchases:
+The `destination` is where files are downloaded to. The `Tagger` takes
+files from there and renames them according to `format` to someplace
+below of the `destination`.
 
-``` perl
-use Modern::Perl;
-use App::Muletracks;
+The main executable is `muletracks`. If you run it, it opens an interactive
+prompt. Supported commands are:
 
-my @stash = muletracks->login->stash(only => 'avail');
-for my $show (@stash) {
-    for my $dl ($show->downloads) {
-        say $dl->save(muletracks->config->destination);
-    }
-}
-```
+- `login`: explicitly try to log in. You may give username and password
+  as arguments. Otherwise the configuration file is consulted and if
+  that also fails, you are prompted for the credentials. All commands
+  which require you to be logged in will call this command implicitly.
 
-To tag all files in the destination folder:
+- `list`: lists all the available shows in your library with media ID,
+  artist and title.
 
-``` perl
-use Modern::Perl;
-use App::Muletracks;
-use App::Muletracks::Tagger;
-use Path::Tiny;
+- `download`: downloads the given media IDs provided that they are
+  available (non-expired) in your library. Each file is downloaded
+  and immediately renamed by the `Tagger` (to avoid this, pass the
+  `--dry-tag` option). With `--cmus-add`, all new files are added
+  via `cmus-remote -l` to your `cmus` library.
 
-my $config = muletracks->config;
-my $tagger = App::Muletracks::Tagger->new($config->format);
-for (grep { $_->is_file } path($config->destination)->children) {
-    say $tagger->apply($_, dry_run => 1);
-}'
-```
+- `fetch`: like `download` but does not run the `Tagger`.
 
-`dry_run => 1` only prints the destination file names without renaming the
-files. Change the `format` until you are satisfied and remove the `dry_run`.
+- `tag`: takes all files in the `destination` folder (only immediate
+  children) and renames them according to their tags and the `format`.
+  Supports the `--dry-run` option to just print the destination
+  filename without renaming the source file.
+
+# AUTHOR
+
+Tobias Boege <tobs@taboege.de>
+
+# COPYRIGHT AND LICENSE
+
+This software is copyright (C) 2022 by Tobias Boege.
+
+This is free software; you can redistribute it and/or
+modify it under the terms of the Artistic License 2.0.

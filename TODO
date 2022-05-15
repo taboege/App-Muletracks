@@ -1,0 +1,4 @@
+- config file and setup wizard
+- keep cookies around on disk and reuse instead of logging out
+- parser and (automatic) downloader from purchase email
+- download progress bar

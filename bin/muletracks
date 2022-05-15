@@ -1,0 +1,203 @@
+#!/usr/bin/env perl
+
+use utf8;
+use open qw(:std :utf8);
+use Modern::Perl 2018;
+
+use App::Muletracks;
+use App::Muletracks::Tagger;
+
+use List::Util qw(any max);
+use Term::ReadLine;
+use Path::Tiny;
+use IPC::Run3;
+use FindBin;
+
+my $term = Term::ReadLine->new($FindBin::Script);
+say 'Configuration file... ', muletracks->config->file,
+    (muletracks->config->hash->%* ? '' : ' (empty)');
+say "$FindBin::Script ready!";
+
+while (defined(my $line = $term->readline('> '))) {
+    use Text::ParseWords;
+    my @cmd = shellwords $line;
+    my $name = shift @cmd;
+
+    my $sub = do {
+        no strict 'refs';
+        \&{'cmd_' . $name}
+    };
+
+    if (not defined $sub) {
+        warn "Command '$name' not found.";
+        next;
+    }
+
+    my $res = eval { $sub->(@cmd); 1 };
+    if (not $res) {
+        warn "$name: $@";
+    }
+}
+
+#### Command implementations ###############################################
+
+use Getopt::Long qw(GetOptionsFromArray);
+
+sub ensure_login {
+    my $username = shift // muletracks->config->username;
+    my $password = shift // muletracks->config->password;
+    if (not defined $username or not defined $password) {
+        warn "Username and/or password are nowhere to be found. Supply the missing information:";
+        $username //= $term->readline('Username: ');
+        $password //= do {
+            my $attr = $term->Attribs;
+            local $attr->{redisplay_function} = $attr->{shadow_redisplay};
+            $term->readline('Password: ')
+        };
+    }
+
+    die 'Username and/or password not configured or given. Use the |login| command.'
+        if not defined $username or not defined $password;
+
+    # Only executed once (we assume the cookie does not expire in one run
+    # of the program and other such problems).
+    state $logged_in = do {
+        my $res = muletracks->ua->login($username, $password);
+        if ($res) {
+            say 'Login successful.';
+        }
+        else {
+            warn 'Login failed.';
+        }
+        $res
+    };
+}
+
+sub cmd_login {
+    ensure_login;
+}
+
+sub cmd_list {
+    GetOptionsFromArray(\@_,
+        'only' => \my $only,
+    ) or die 'failed parsing options';
+    $only //= 'avail';
+
+    ensure_login;
+    my @stash = muletracks->stash(only => $only);
+    if (not @stash) {
+        say "No available shows found.";
+        return;
+    }
+
+    say "Found @{[ 0+ @stash ]} available shows:";
+    for my $show (@stash) {
+        say $show->media_id, ' / ', $show->artist, ': ', $show->title;
+    }
+    say '';
+}
+
+sub cmd_download {
+    GetOptionsFromArray(\@_,
+        'dry-tag'  => \my $dry_tag,
+        'cmus-add' => \my $cmus_add,
+    ) or die 'failed parsing options';
+
+    die "Argument '$_' is not a media ID"
+        for grep { not /^\d+$/ } @_;
+
+    ensure_login;
+    my @stash = grep {
+        my $show = $_;
+        not @_ or any { $show->media_id == $_ } @_
+    } muletracks->stash;
+
+    if (not @stash) {
+        say "None of the given shows are available.";
+        return;
+    }
+
+    my $dest = path(muletracks->config->destination // Path::Tiny->cwd);
+    my $format = muletracks->config->format //
+        '%(artist)s - %(album)s/(CD%(cd)1d) %(track)02d. %(title)s';
+    my $tagger = App::Muletracks::Tagger->new($format);
+
+    local $| = 1; # no output buffering
+    my $nr_show = 1;
+    for my $show (@stash) {
+        say "Downloading @{[ $nr_show++ ]} / @{[ 0+ @stash ]} - ",
+            $show->media_id, ' / ', $show->artist, ': ', $show->title;
+
+        my $width = max map { length $_->filename } $show->downloads;
+
+        my @new_files;
+        for my $dl ($show->downloads) {
+            print sprintf '%-*s -> ', $width, $dl->filename;
+            my $file = $dl->save($dest);
+            my $new  = $tagger->apply($file, dry_run => $dry_tag);
+            print $new, "\n";
+
+            push @new_files, ($dry_tag ? $file : $new);
+        }
+
+        if ($cmus_add) {
+            for my $file (@new_files) {
+                run3 ['cmus-remote', '-l', $file], \undef, \my $out, \my $err;
+                my $res = $? >> 8;
+                die "cmus-remote: @{[ $err || $out ]}" if $res != 0;
+            }
+        }
+
+        say '';
+    }
+}
+
+sub cmd_fetch {
+    die "Argument '$_' is not a media ID"
+        for grep { not /^\d+$/ } @_;
+
+    ensure_login;
+    my @stash = grep {
+        my $show = $_;
+        not @_ or any { $show->media_id == $_ } @_
+    } muletracks->stash;
+
+    if (not @stash) {
+        say "None of the given shows are available.";
+        return;
+    }
+
+    my $dest = path(muletracks->config->destination // Path::Tiny->cwd);
+    local $| = 1; # no output buffering
+    my $nr_show = 1;
+    for my $show (@stash) {
+        say "Downloading @{[ $nr_show++ ]} / @{[ 0+ @stash ]} - ",
+            $show->media_id, ' / ', $show->artist, ': ', $show->title;
+
+        for my $dl ($show->downloads) {
+            say $dl->filename;
+            my $file = $dl->save($dest);
+        }
+        say '';
+    }
+}
+
+sub cmd_tag {
+    GetOptionsFromArray(\@_,
+        'dry-run' => \my $dry_run,
+    ) or die 'failed parsing options';
+
+    my $dest = path(muletracks->config->destination // Path::Tiny->cwd);
+    my $format = muletracks->config->format //
+        '%(artist)s - %(album)s/(CD%(cd)1d) %(track)02d. %(title)s';
+    my $tagger = App::Muletracks::Tagger->new($format);
+
+    my @files = grep { $_->is_file } $dest->children;
+    my $width = max map { length $_->basename } @files;
+
+    local $| = 1; # no output buffering
+    for (@files) {
+        say sprintf '%-*s -> %s', $width, $_->basename,
+            $tagger->apply($_, dry_run => $dry_run);
+    }
+}

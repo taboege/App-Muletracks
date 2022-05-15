@@ -22,7 +22,6 @@ use App::Muletracks::Stashed;
 # ABSTRACT: Navigate nugs downloads
 class App::Muletracks::UserAgent {
     has $ua = Mojo::UserAgent->new(max_redirects => 5);
-    has $logged_out = 0;
 
     method login ($username, $password, $url = q[https://www.nugs.net/login/]) {
         my $tx = $ua->get($url);
@@ -41,17 +40,12 @@ class App::Muletracks::UserAgent {
         my $res = $ua->post($target => form => \%data)->result;
         die 'nugs login failed'
             if defined $res->dom->at('.validation-summary-errors');
-        $logged_out = 0;
         $self
     }
 
     method logout {
-        $logged_out = $ua->get(q[https://www.nugs.net/on/demandware.store/Sites-NugsNet-Site/default/Login-Logout])
+        $ua->get(q[https://www.nugs.net/on/demandware.store/Sites-NugsNet-Site/default/Login-Logout])
             ->result->is_success;
-    }
-
-    method DESTROY {
-        $self->logout unless $logged_out;
     }
 
     method stash ($only = 'avail') {

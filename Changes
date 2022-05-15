@@ -1,0 +1,10 @@
+Revision history for perl module App::Muletracks
+
+v0.2.0 2022-05-15
+
+  - Update for latest nugs website changes
+  - Write muletracks frontend script
+
+v0.1.0 2020-11-16
+
+  - Initial release
