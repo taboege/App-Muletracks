@@ -16,7 +16,7 @@ use FindBin;
 my $term = Term::ReadLine->new($FindBin::Script);
 say 'Configuration file... ', muletracks->config->file,
     (muletracks->config->hash->%* ? '' : ' (empty)');
-say "$FindBin::Script ready!";
+say "$FindBin::Script is ready!";
 
 while (defined(my $line = $term->readline('> '))) {
     use Text::ParseWords;
@@ -90,7 +90,7 @@ sub cmd_list {
         return;
     }
 
-    say "Found @{[ 0+ @stash ]} available shows:";
+    say "Found @{[ 0+ @stash ]} available show(s):";
     for my $show (@stash) {
         say $show->media_id, ' / ', $show->artist, ': ', $show->title;
     }
