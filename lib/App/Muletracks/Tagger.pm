@@ -32,7 +32,8 @@ class App::Muletracks::Tagger {
         run3 ['metaflac', '--export-tags-to=-', $file], \undef, \my $out;
         # Lowercase key and replace / by - everywhere
         my %tags = pairmap { (lc($a), ($b =~ s!/!-!gr)) }
-            map { split /=/ } split /\n/, $out;
+            map { split /=/ } grep { /^[A-Z]+=/ }
+            split /\n/, $out;
         {
             artist => $tags{artist},
             album  => $tags{album},
